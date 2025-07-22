@@ -46,9 +46,7 @@ function App() {
   return (
     <Router>
       <div className="App">
-        {!user ? (
-          <Login onLogin={setUser} />
-        ) : (
+        (
           <Routes>
             <Route 
               path="/" 
@@ -60,7 +58,7 @@ function App() {
             />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        )}
+        )
       </div>
     </Router>
   );
