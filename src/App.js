@@ -27,6 +27,10 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const handleLogin = (userData) => {
+    setUser(userData);
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -43,22 +47,26 @@ function App() {
     );
   }
 
+  // Show login screen if no user is authenticated
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  // Show main app if user is authenticated
   return (
     <Router>
       <div className="App">
-        (
-          <Routes>
-            <Route 
-              path="/" 
-              element={<ConsultationDashboard user={user} onLogout={handleLogout} />} 
-            />
-            <Route 
-              path="/admin" 
-              element={<AdminDashboard user={user} onLogout={handleLogout} />} 
-            />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        )
+        <Routes>
+          <Route
+            path="/"
+            element={<ConsultationDashboard user={user} onLogout={handleLogout} />}
+          />
+          <Route
+            path="/admin"
+            element={<AdminDashboard user={user} onLogout={handleLogout} />}
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </div>
     </Router>
   );

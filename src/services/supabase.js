@@ -5,6 +5,29 @@ const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Auth helper functions
+export const authService = {
+  // Get current user
+  getCurrentUser: () => {
+    return supabase.auth.getUser();
+  },
+
+  // Get current session
+  getCurrentSession: () => {
+    return supabase.auth.getSession();
+  },
+
+  // Sign out
+  signOut: () => {
+    return supabase.auth.signOut();
+  },
+
+  // Listen to auth changes
+  onAuthStateChange: (callback) => {
+    return supabase.auth.onAuthStateChange(callback);
+  }
+};
+
 export class DataService {
   // Save stakeholder information
   async saveStakeholder(stakeholderData) {
@@ -12,7 +35,7 @@ export class DataService {
       .from('stakeholders')
       .insert([stakeholderData])
       .select();
-
+    
     if (error) throw error;
     return data[0];
   }
@@ -23,7 +46,7 @@ export class DataService {
       .from('consultation_sessions')
       .insert([sessionData])
       .select();
-
+    
     if (error) throw error;
     return data[0];
   }
@@ -34,7 +57,7 @@ export class DataService {
       .from('conversation_messages')
       .insert([messageData])
       .select();
-
+    
     if (error) throw error;
     return data[0];
   }
@@ -45,7 +68,7 @@ export class DataService {
       .from('priorities')
       .insert(priorities)
       .select();
-
+    
     if (error) throw error;
     return data;
   }
@@ -62,7 +85,7 @@ export class DataService {
       `)
       .eq('id', sessionId)
       .single();
-
+    
     return session;
   }
 
@@ -75,7 +98,7 @@ export class DataService {
         stakeholders(name, role, department)
       `)
       .order('started_at', { ascending: false });
-
+    
     return data;
   }
 }
