@@ -48,9 +48,8 @@ function App() {
   }
 
   // Show login screen if no user is authenticated
-  if (!user) {
-    return <Login onLogin={handleLogin} />;
-  }
+  <Login onLogin={handleLogin} />;
+  
 
   // Show main app if user is authenticated
   return (
