@@ -19,7 +19,7 @@ function App() {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (_, session) => {
         setUser(session?.user ?? null);
       }
     );
@@ -47,9 +47,10 @@ function App() {
     );
   }
 
-  // Show login screen if no user is authenticated
-  <Login onLogin={handleLogin} />;
-  
+// Show login screen if no user is authenticated
+if (!user) {
+  return <Login onLogin={handleLogin} />;
+}
 
   // Show main app if user is authenticated
   return (
