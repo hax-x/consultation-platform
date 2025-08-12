@@ -1,12 +1,77 @@
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.REACT_APP_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true
-});
+let openai; // Declare openai outside to be initialized conditionally
+// const BACKEND_URL = "http://127.0.0.1:8004";
+const BACKEND_URL = "https://tafe-nsw-consultation-backend.onrender.com";
 
 export class AIService {
-  async generateResponse(userMessage, context, persona = 'riley') {
+  async sendPriorityDiscoveryMessage(userMessage, context) { // Add context parameter
+    try {
+      const payload = { 
+        message: userMessage, 
+        context: context 
+      };
+      
+      // Add session_id if available
+      if (context && context.session_id) {
+        payload.session_id = context.session_id;
+      }
+
+      const response = await fetch(`${BACKEND_URL}/run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return {
+        response: data.message,
+        insights: [], // Backend agent doesn't provide insights in this format
+        followUpQuestions: [], // Backend agent doesn't provide follow-up questions in this format
+        data: data.data,
+        sessionId: data.session_id
+      };
+    } catch (error) {
+      console.error('Backend API Error:', error);
+      return {
+        response: "I'm having trouble connecting to the priority discovery agent right now. Please try again later.",
+        insights: [],
+        followUpQuestions: []
+      };
+    }
+  }
+
+  async generateResponse(userMessage, context, persona = 'riley', options = {}) {
+    if (persona === 'riley') {
+      return this.sendPriorityDiscoveryMessage(userMessage, context); // Remove streaming logic
+    }
+    
+    if (persona === 'morgan') {
+      return this.sendCapacityAssessmentMessage(userMessage, context);
+    }
+    
+    if (persona === 'alex') {
+      return this.sendRiskAssessmentMessage(userMessage, context);
+    }
+    
+    if (persona === 'jordan') {
+      return this.sendEngagementPlanningMessage(userMessage, context);
+    }
+
+    // Original OpenAI logic for other personas
+    if (!openai) { // Initialize OpenAI only if not already initialized
+      openai = new OpenAI({
+        apiKey: process.env.REACT_APP_OPENAI_API_KEY,
+        // dangerouslyAllowBrowser: true // Removed as it's not a standard or recommended practice
+      });
+    }
+
     const systemPrompt = this.getPersonaPrompt(persona, context);
 
     try {
@@ -32,6 +97,102 @@ export class AIService {
       console.error('AI API Error:', error);
       return {
         response: "I'm having trouble connecting right now. Could you please try rephrasing your response?",
+        insights: [],
+        followUpQuestions: []
+      };
+    }
+  }
+
+  async sendCapacityAssessmentMessage(userMessage, context) {
+    try {
+      const response = await fetch(`${BACKEND_URL}/capacity-agent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: userMessage, context: context }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return {
+        response: data.message,
+        insights: [], // Backend agent doesn't provide insights in this format
+        followUpQuestions: [], // Backend agent doesn't provide follow-up questions in this format
+        data: data.data,
+        sessionId: data.session_id
+      };
+    } catch (error) {
+      console.error('Capacity Agent API Error:', error);
+      return {
+        response: "I'm having trouble connecting to the capacity assessment agent right now. Please try again later.",
+        insights: [],
+        followUpQuestions: []
+      };
+    }
+  }
+
+  async sendRiskAssessmentMessage(userMessage, context) {
+    try {
+      const response = await fetch(`${BACKEND_URL}/risk-agent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: userMessage, context: context }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return {
+        response: data.message,
+        insights: [], // Backend agent doesn't provide insights in this format
+        followUpQuestions: [], // Backend agent doesn't provide follow-up questions in this format
+        data: data.data,
+        sessionId: data.session_id
+      };
+    } catch (error) {
+      console.error('Risk Agent API Error:', error);
+      return {
+        response: "I'm having trouble connecting to the risk assessment agent right now. Please try again later.",
+        insights: [],
+        followUpQuestions: []
+      };
+    }
+  }
+
+  async sendEngagementPlanningMessage(userMessage, context) {
+    try {
+      const response = await fetch(`${BACKEND_URL}/engagement-agent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: userMessage, context: context }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return {
+        response: data.message,
+        insights: [], // Backend agent doesn't provide insights in this format
+        followUpQuestions: [], // Backend agent doesn't provide follow-up questions in this format
+        data: data.data,
+        sessionId: data.session_id
+      };
+    } catch (error) {
+      console.error('Engagement Agent API Error:', error);
+      return {
+        response: "I'm having trouble connecting to the engagement planning agent right now. Please try again later.",
         insights: [],
         followUpQuestions: []
       };

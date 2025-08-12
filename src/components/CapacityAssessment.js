@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // Import useRef and useEffect
 import { AIService } from '../services/aiService';
 import { DataService } from '../services/supabase';
 import { Send, Download, Save, Users, BarChart3, TrendingUp } from 'lucide-react';
@@ -21,9 +21,24 @@ const CapacityAssessment = ({ onBack }) => {
     recommendations: []
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId, setSessionId] = useState(null); // Add session tracking
+  
+  const messagesEndRef = useRef(null); // Create ref for auto-scroll
+  const messagesContainerRef = useRef(null);
 
   const aiService = new AIService();
   const dataService = new DataService();
+
+  // Auto-scroll to bottom when conversation updates
+  const scrollToBottom = () => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [conversationHistory]);
 
   const startConversation = async () => {
     if (!stakeholderInfo.name || !stakeholderInfo.role || !stakeholderInfo.department) {
@@ -32,17 +47,49 @@ const CapacityAssessment = ({ onBack }) => {
     }
 
     setCurrentStep('conversation');
-    const welcomeMessage = {
-      sender: 'ai',
-      message: `Hi ${stakeholderInfo.name}! I'm Morgan, your capacity analysis specialist. I'll help you assess your current capacity and identify optimization opportunities for ${stakeholderInfo.department}.
+    setIsLoading(true);
 
-Let's start by understanding your current situation. Can you tell me about your team size and the main functions your department handles?`,
-      timestamp: new Date()
+    // Create initial context for the capacity agent
+    const context = {
+      user_id: stakeholderInfo.email || stakeholderInfo.name.toLowerCase().replace(/\s+/g, '_'),
+      department: stakeholderInfo.department,
+      role: stakeholderInfo.role,
+      name: stakeholderInfo.name,
+      conversationHistory: []
     };
-    setConversationHistory([welcomeMessage]);
+
+    try {
+      // Send initial message to capacity agent
+      const aiResult = await aiService.generateResponse(
+        `Hello, I'm ${stakeholderInfo.name}, ${stakeholderInfo.role} from ${stakeholderInfo.department}. I'd like to start a capacity assessment.`,
+        context,
+        'morgan'
+      );
+
+      setSessionId(aiResult.sessionId);
+
+      const welcomeMessage = {
+        sender: 'ai',
+        message: aiResult.response,
+        timestamp: new Date()
+      };
+      setConversationHistory([welcomeMessage]);
+
+    } catch (error) {
+      console.error('Error starting conversation:', error);
+      const fallbackMessage = {
+        sender: 'ai',
+        message: `Hi ${stakeholderInfo.name}! I'm Morgan, your capacity analysis specialist. I'll help you assess your current capacity and identify optimization opportunities for ${stakeholderInfo.department}. Let's start by understanding your current situation. Can you tell me about your team size and the main functions your department handles?`,
+        timestamp: new Date()
+      };
+      setConversationHistory([fallbackMessage]);
+    }
+
+    setIsLoading(false);
   };
 
   const handleUserResponse = async () => {
+    setUserResponse('');
     if (!userResponse.trim() || isLoading) return;
 
     setIsLoading(true);
@@ -54,11 +101,28 @@ Let's start by understanding your current situation. Can you tell me about your 
     setConversationHistory(newConversation);
 
     try {
+      // Create context with conversation history for capacity agent
+      const context = {
+        user_id: stakeholderInfo.email || stakeholderInfo.name.toLowerCase().replace(/\s+/g, '_'),
+        department: stakeholderInfo.department,
+        role: stakeholderInfo.role,
+        name: stakeholderInfo.name,
+        conversationHistory: newConversation.map(msg => ({
+          sender: msg.sender,
+          message: msg.message
+        }))
+      };
+
       const aiResult = await aiService.generateResponse(
         userResponse,
-        stakeholderInfo,
+        context,
         'morgan'
       );
+
+      // Update session ID if provided
+      if (aiResult.sessionId) {
+        setSessionId(aiResult.sessionId);
+      }
 
       const updatedConversation = [
         ...newConversation,
@@ -66,52 +130,95 @@ Let's start by understanding your current situation. Can you tell me about your 
           sender: 'ai',
           message: aiResult.response,
           timestamp: new Date(),
-          insights: aiResult.insights
+          insights: aiResult.insights,
+          data: aiResult.data
         }
       ];
       setConversationHistory(updatedConversation);
 
       // Analyze capacity from conversation
-      analyzeCapacity(userResponse, aiResult.response);
+      analyzeCapacity(userResponse, aiResult.response, aiResult.data);
 
     } catch (error) {
       console.error('Error getting AI response:', error);
+      const errorConversation = [
+        ...newConversation,
+        {
+          sender: 'ai',
+          message: "I apologize, but I'm having trouble processing your response right now. Could you please try again?",
+          timestamp: new Date()
+        }
+      ];
+      setConversationHistory(errorConversation);
     }
 
     setUserResponse('');
     setIsLoading(false);
   };
 
-  const analyzeCapacity = (userMessage, aiResponse) => {
+  const analyzeCapacity = (userMessage, aiResponse, agentData = null) => {
     const combined = userMessage + ' ' + aiResponse;
     const analysis = { ...capacityAnalysis };
 
-    // Extract capacity insights
+    // Use agent data if available from the backend
+    if (agentData && agentData.conversation_stage) {
+      // The backend agent provides structured data about the assessment stage
+      console.log('Assessment stage:', agentData.conversation_stage);
+    }
+
+    // Extract capacity insights from conversation content
     if (combined.toLowerCase().includes('understaffed') || combined.toLowerCase().includes('overloaded')) {
-      analysis.gaps.push({
+      const newGap = {
         area: 'Staffing Levels',
         description: 'Current staffing levels appear insufficient for workload demands',
         impact: 'high',
         priority: 9
-      });
+      };
+      
+      // Avoid duplicates
+      if (!analysis.gaps.some(gap => gap.area === newGap.area)) {
+        analysis.gaps.push(newGap);
+      }
     }
 
     if (combined.toLowerCase().includes('training') || combined.toLowerCase().includes('skills')) {
-      analysis.opportunities.push({
+      const newOpportunity = {
         area: 'Skills Development',
         description: 'Opportunity to enhance staff capabilities through targeted training',
         potential: 'medium',
         effort: 'low'
-      });
+      };
+      
+      if (!analysis.opportunities.some(opp => opp.area === newOpportunity.area)) {
+        analysis.opportunities.push(newOpportunity);
+      }
     }
 
     if (combined.toLowerCase().includes('process') || combined.toLowerCase().includes('workflow')) {
-      analysis.recommendations.push({
+      const newRecommendation = {
         title: 'Process Optimization',
         description: 'Review and streamline current workflows for efficiency gains',
         timeframe: '3-6 months',
         impact: 'medium'
-      });
+      };
+      
+      if (!analysis.recommendations.some(rec => rec.title === newRecommendation.title)) {
+        analysis.recommendations.push(newRecommendation);
+      }
+    }
+
+    // Additional capacity analysis based on Morgan's specializations
+    if (combined.toLowerCase().includes('resource allocation') || combined.toLowerCase().includes('utilization')) {
+      const newOpportunity = {
+        area: 'Resource Optimization',
+        description: 'Opportunities identified for better resource allocation and utilization',
+        potential: 'high',
+        effort: 'medium'
+      };
+      
+      if (!analysis.opportunities.some(opp => opp.area === newOpportunity.area)) {
+        analysis.opportunities.push(newOpportunity);
+      }
     }
 
     setCapacityAnalysis(analysis);
@@ -121,6 +228,8 @@ Let's start by understanding your current situation. Can you tell me about your 
     const exportData = {
       stakeholder: stakeholderInfo,
       consultation_type: 'capacity_assessment',
+      agent: 'morgan_capacity_analyst',
+      session_id: sessionId,
       conversation: conversationHistory,
       capacity_analysis: capacityAnalysis,
       export_date: new Date().toISOString()
@@ -161,7 +270,7 @@ Let's start by understanding your current situation. Can you tell me about your 
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="text-black grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Full Name *
@@ -248,7 +357,10 @@ Let's start by understanding your current situation. Can you tell me about your 
               </h2>
             </div>
             
-            <div className="h-96 overflow-y-auto p-4 space-y-4">
+            <div 
+              className="h-96 overflow-y-auto p-4 space-y-4" 
+              ref={messagesContainerRef}
+            >
               {conversationHistory.map((msg, index) => (
                 <div key={index} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
@@ -269,14 +381,17 @@ Let's start by understanding your current situation. Can you tell me about your 
                   <div className="bg-gray-100 rounded-lg px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
-                      <span className="text-sm text-gray-600">Analyzing...</span>
+                      <span className="text-sm text-gray-600">Morgan is analyzing...</span>
                     </div>
                   </div>
                 </div>
               )}
+              
+              {/* Auto-scroll target */}
+              <div ref={messagesEndRef} />
             </div>
             
-            <div className="p-4 border-t border-gray-200">
+            <div className="p-4 text-black border-t border-gray-200">
               <div className="flex gap-2">
                 <input
                   type="text"

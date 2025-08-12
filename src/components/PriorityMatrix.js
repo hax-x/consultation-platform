@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // Import useRef
 import { AIService } from '../services/aiService';
 import { DataService } from '../services/supabase';
 import { Send, Download, Save, MessageCircle } from 'lucide-react';
@@ -16,9 +16,72 @@ const PriorityMatrix = ({ onBack }) => {
   const [discoveredPriorities, setDiscoveredPriorities] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState(null);
+  const messagesEndRef = useRef(null); // Create a ref for the messages container
+  const messagesContainerRef = useRef(null); // Add a ref for the messages container
 
   const aiService = new AIService();
   const dataService = new DataService();
+
+  // Format message to handle basic markdown-style formatting
+  const formatMessage = (message) => {
+    if (!message) return '';
+    
+    // Split by lines and process each line
+    const lines = message.split('\n');
+    const formattedLines = lines.map((line, index) => {
+      let formattedLine = line;
+      
+      // Handle numbered lists (1. 2. 3. etc.)
+      if (/^\d+\.\s\*\*/.test(line)) {
+        const parts = line.match(/^(\d+\.\s)\*\*(.*?)\*\*:?\s*(.*)/);
+        if (parts) {
+          return (
+            <div key={index} className="mb-2">
+              <span className="font-semibold text-blue-700">{parts[1]}</span>
+              <span className="font-bold text-gray-900">{parts[2]}</span>
+              {parts[3] && <span className="text-gray-800">: {parts[3]}</span>}
+            </div>
+          );
+        }
+      }
+      
+      // Handle bold text **text**
+      if (formattedLine.includes('**')) {
+        const parts = formattedLine.split(/(\*\*.*?\*\*)/);
+        return (
+          <div key={index} className="mb-1">
+            {parts.map((part, partIndex) => {
+              if (part.startsWith('**') && part.endsWith('**')) {
+                return <span key={partIndex} className="font-bold text-gray-900">{part.slice(2, -2)}</span>;
+              }
+              return <span key={partIndex}>{part}</span>;
+            })}
+          </div>
+        );
+      }
+      
+      // Handle regular lines with proper spacing
+      if (line.trim() === '') {
+        return <div key={index} className="h-2"></div>; // Empty line spacing
+      }
+      
+      return <div key={index} className="mb-1">{line}</div>;
+    });
+    
+    return <div>{formattedLines}</div>;
+  };
+
+  // Improved scroll to bottom function
+  const scrollToBottom = () => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  // Scroll to bottom whenever conversationHistory changes
+  useEffect(() => {
+    scrollToBottom();
+  }, [conversationHistory]);
 
   const startConversation = async () => {
     if (!stakeholderInfo.name || !stakeholderInfo.role || !stakeholderInfo.department) {
@@ -27,102 +90,94 @@ const PriorityMatrix = ({ onBack }) => {
     }
 
     setCurrentStep('conversation');
-    const welcomeMessage = {
-      sender: 'ai',
-      message: `G'day ${stakeholderInfo.name}! I'm Riley, your strategic priority consultant. I'm here to help identify and prioritise the most important initiatives for ${stakeholderInfo.department}. 
+    setIsLoading(true);
 
-Let's start with the big picture - what would you say are the top 3 challenges or opportunities your department is currently facing?`,
-      timestamp: new Date()
-    };
-    setConversationHistory([welcomeMessage]);
+    try {
+      console.log('Starting conversation with agent...'); 
+      // Send initial message to get onboarding response from agent
+      const aiResult = await aiService.generateResponse(
+        "Hello, I'd like to start a strategic priority consultation.",
+        { 
+          ...stakeholderInfo, 
+          conversationHistory: [],
+          user_id: stakeholderInfo.email || 'anonymous'
+        },
+        'riley'
+      );
+
+      console.log('Agent onboarding response:', aiResult);
+
+      // Start conversation with agent's onboarding message
+      setConversationHistory([{
+        sender: 'ai',
+        message: aiResult.response,
+        timestamp: new Date(),
+        insights: aiResult.insights
+      }]);
+      
+      setSessionId(aiResult.sessionId);
+    } catch (e) {
+      console.error('Error starting conversation:', e);
+      // Fallback message if agent fails
+      setConversationHistory([{
+        sender: 'ai',
+        message: "G'day! I'm Riley, your strategic consultant. I'm having a bit of trouble getting started, but I'm here to help you identify strategic priorities. What brings you here today?",
+        timestamp: new Date()
+      }]);
+    }
+    setIsLoading(false);
   };
 
   const handleUserResponse = async () => {
     if (!userResponse.trim() || isLoading) return;
-
+    const outgoing = userResponse;
+    setUserResponse('');
     setIsLoading(true);
-    
-    // Add user message to conversation
+
     const newConversation = [
       ...conversationHistory,
-      { sender: 'user', message: userResponse, timestamp: new Date() }
+      { sender: 'user', message: outgoing, timestamp: new Date() },
     ];
     setConversationHistory(newConversation);
 
     try {
-      // Get AI response
+      console.log('Starting request...'); // Debug log
       const aiResult = await aiService.generateResponse(
-        userResponse,
-        stakeholderInfo,
+        outgoing,
+        { 
+          ...stakeholderInfo, 
+          conversationHistory: newConversation,
+          user_id: stakeholderInfo.email || 'anonymous',
+          session_id: sessionId
+        },
         'riley'
       );
 
+      console.log('Request completed, result:', aiResult); // Debug log
+
       // Add AI response to conversation
-      const updatedConversation = [
-        ...newConversation,
-        {
-          sender: 'ai',
-          message: aiResult.response,
+      setConversationHistory(prev => [
+        ...prev,
+        { 
+          sender: 'ai', 
+          message: aiResult.response, 
           timestamp: new Date(),
           insights: aiResult.insights
         }
-      ];
-      setConversationHistory(updatedConversation);
-
-      // Extract priorities from conversation
-      extractPriorities(userResponse, aiResult.response);
-
-    } catch (error) {
-      console.error('Error getting AI response:', error);
+      ]);
+      setSessionId(aiResult.sessionId);
+    } catch (e) {
+      console.error('Request error:', e);
+      setConversationHistory(prev => [
+        ...prev,
+        { 
+          sender: 'ai', 
+          message: "Sorry, there was an error generating a response.", 
+          timestamp: new Date()
+        }
+      ]);
     }
-
-    setUserResponse('');
     setIsLoading(false);
-  };
-
-  const extractPriorities = (userMessage, aiResponse) => {
-    // Simple extraction logic - in production, this would be more sophisticated
-    const combined = userMessage + ' ' + aiResponse;
-    const priorities = [];
-
-    // Look for priority-related keywords
-    if (combined.toLowerCase().includes('staff') || combined.toLowerCase().includes('recruitment')) {
-      priorities.push({
-        title: 'Staff Development & Recruitment',
-        description: 'Address staffing challenges and development needs',
-        importance: 8,
-        urgency: 7,
-        themes: ['human-resources', 'capacity']
-      });
-    }
-
-    if (combined.toLowerCase().includes('student') || combined.toLowerCase().includes('placement')) {
-      priorities.push({
-        title: 'Student Experience Enhancement',
-        description: 'Improve student placement and learning outcomes',
-        importance: 9,
-        urgency: 6,
-        themes: ['student-experience', 'partnerships']
-      });
-    }
-
-    if (combined.toLowerCase().includes('technology') || combined.toLowerCase().includes('system')) {
-      priorities.push({
-        title: 'Technology Infrastructure',
-        description: 'Upgrade and maintain technology systems',
-        importance: 7,
-        urgency: 8,
-        themes: ['technology', 'infrastructure']
-      });
-    }
-
-    // Add new priorities to existing ones
-    const existingTitles = discoveredPriorities.map(p => p.title);
-    const newPriorities = priorities.filter(p => !existingTitles.includes(p.title));
-    
-    if (newPriorities.length > 0) {
-      setDiscoveredPriorities([...discoveredPriorities, ...newPriorities]);
-    }
   };
 
   const handleSaveData = async () => {
@@ -221,7 +276,7 @@ Let's start with the big picture - what would you say are the top 3 challenges o
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 text-black">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Full Name *
@@ -230,7 +285,7 @@ Let's start with the big picture - what would you say are the top 3 challenges o
                 type="text"
                 value={stakeholderInfo.name}
                 onChange={(e) => setStakeholderInfo({...stakeholderInfo, name: e.target.value})}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full p-3 text-black border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Enter your full name"
               />
             </div>
@@ -308,7 +363,10 @@ Let's start with the big picture - what would you say are the top 3 challenges o
               </h2>
             </div>
             
-            <div className="h-96 overflow-y-auto p-4 space-y-4">
+            <div 
+              className="h-96 overflow-y-auto p-4 space-y-4" 
+              ref={messagesContainerRef} // Add ref to the container
+            > 
               {conversationHistory.map((msg, index) => (
                 <div key={index} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
@@ -319,7 +377,9 @@ Let's start with the big picture - what would you say are the top 3 challenges o
                     {msg.sender === 'ai' && (
                       <div className="text-xs text-gray-600 mb-1">Riley</div>
                     )}
-                    <div className="text-sm">{msg.message}</div>
+                    <div className="text-sm whitespace-pre-wrap break-words">
+                      {formatMessage(msg.message)}
+                    </div>
                     {msg.insights && msg.insights.length > 0 && (
                       <div className="mt-2 pt-2 border-t border-gray-200">
                         <div className="text-xs text-gray-500">Insights:</div>
@@ -344,9 +404,12 @@ Let's start with the big picture - what would you say are the top 3 challenges o
                   </div>
                 </div>
               )}
+              
+              {/* Add this div at the end of the messages container */}
+              <div ref={messagesEndRef} />
             </div>
             
-            <div className="p-4 border-t border-gray-200">
+            <div className="p-4 text-black border-t border-gray-200">
               <div className="flex gap-2">
                 <input
                   type="text"

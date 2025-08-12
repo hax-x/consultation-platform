@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // Import useRef and useEffect
 import { AIService } from '../services/aiService';
 import { DataService } from '../services/supabase';
 import { Send, Download, Save, Shield, AlertTriangle, CheckCircle } from 'lucide-react';
@@ -15,9 +15,24 @@ const RiskRegister = ({ onBack }) => {
   const [userResponse, setUserResponse] = useState('');
   const [identifiedRisks, setIdentifiedRisks] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId, setSessionId] = useState(null); // Add session tracking
+  
+  const messagesEndRef = useRef(null); // Create ref for auto-scroll
+  const messagesContainerRef = useRef(null);
 
   const aiService = new AIService();
   const dataService = new DataService();
+
+  // Auto-scroll to bottom when conversation updates
+  const scrollToBottom = () => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [conversationHistory]);
 
   const startConversation = async () => {
     if (!stakeholderInfo.name || !stakeholderInfo.role || !stakeholderInfo.department) {
@@ -26,14 +41,45 @@ const RiskRegister = ({ onBack }) => {
     }
 
     setCurrentStep('conversation');
-    const welcomeMessage = {
-      sender: 'ai',
-      message: `Hello ${stakeholderInfo.name}! I'm Alex, your risk assessment specialist. I'll help you identify, assess, and develop mitigation strategies for operational and strategic risks in ${stakeholderInfo.department}.
+    setIsLoading(true);
 
-Let's begin by discussing any concerns or potential risks you're currently aware of in your department. What areas keep you awake at night?`,
-      timestamp: new Date()
+    // Create initial context for the risk agent
+    const context = {
+      user_id: stakeholderInfo.email || stakeholderInfo.name.toLowerCase().replace(/\s+/g, '_'),
+      department: stakeholderInfo.department,
+      role: stakeholderInfo.role,
+      name: stakeholderInfo.name,
+      conversationHistory: []
     };
-    setConversationHistory([welcomeMessage]);
+
+    try {
+      // Send initial message to risk agent
+      const aiResult = await aiService.generateResponse(
+        `Hello, I'm ${stakeholderInfo.name}, ${stakeholderInfo.role} from ${stakeholderInfo.department}. I'd like to start a risk assessment.`,
+        context,
+        'alex'
+      );
+
+      setSessionId(aiResult.sessionId);
+
+      const welcomeMessage = {
+        sender: 'ai',
+        message: aiResult.response,
+        timestamp: new Date()
+      };
+      setConversationHistory([welcomeMessage]);
+
+    } catch (error) {
+      console.error('Error starting conversation:', error);
+      const fallbackMessage = {
+        sender: 'ai',
+        message: `Hello ${stakeholderInfo.name}! I'm Alex, your risk assessment specialist. I'll help you identify, assess, and develop mitigation strategies for operational and strategic risks in ${stakeholderInfo.department}. Let's begin by discussing any concerns or potential risks you're currently aware of in your department. What areas keep you awake at night?`,
+        timestamp: new Date()
+      };
+      setConversationHistory([fallbackMessage]);
+    }
+
+    setIsLoading(false);
   };
 
   const handleUserResponse = async () => {
@@ -48,11 +94,28 @@ Let's begin by discussing any concerns or potential risks you're currently aware
     setConversationHistory(newConversation);
 
     try {
+      // Create context with conversation history for risk agent
+      const context = {
+        user_id: stakeholderInfo.email || stakeholderInfo.name.toLowerCase().replace(/\s+/g, '_'),
+        department: stakeholderInfo.department,
+        role: stakeholderInfo.role,
+        name: stakeholderInfo.name,
+        conversationHistory: newConversation.map(msg => ({
+          sender: msg.sender,
+          message: msg.message
+        }))
+      };
+
       const aiResult = await aiService.generateResponse(
         userResponse,
-        stakeholderInfo,
+        context,
         'alex'
       );
+
+      // Update session ID if provided
+      if (aiResult.sessionId) {
+        setSessionId(aiResult.sessionId);
+      }
 
       const updatedConversation = [
         ...newConversation,
@@ -60,25 +123,40 @@ Let's begin by discussing any concerns or potential risks you're currently aware
           sender: 'ai',
           message: aiResult.response,
           timestamp: new Date(),
-          insights: aiResult.insights
+          insights: aiResult.insights,
+          data: aiResult.data
         }
       ];
       setConversationHistory(updatedConversation);
 
       // Extract risks from conversation
-      extractRisks(userResponse, aiResult.response);
+      extractRisks(userResponse, aiResult.response, aiResult.data);
 
     } catch (error) {
       console.error('Error getting AI response:', error);
+      const errorConversation = [
+        ...newConversation,
+        {
+          sender: 'ai',
+          message: "I apologize, but I'm having trouble processing your response right now. Could you please try again?",
+          timestamp: new Date()
+        }
+      ];
+      setConversationHistory(errorConversation);
     }
 
     setUserResponse('');
     setIsLoading(false);
   };
 
-  const extractRisks = (userMessage, aiResponse) => {
+  const extractRisks = (userMessage, aiResponse, agentData = null) => {
     const combined = userMessage + ' ' + aiResponse;
     const risks = [];
+
+    // Use agent data if available from the backend
+    if (agentData && agentData.conversation_stage) {
+      console.log('Risk assessment stage:', agentData.conversation_stage);
+    }
 
     // Risk detection patterns
     if (combined.toLowerCase().includes('staff') && (combined.toLowerCase().includes('shortage') || combined.toLowerCase().includes('turnover'))) {
@@ -135,7 +213,7 @@ Let's begin by discussing any concerns or potential risks you're currently aware
       });
     }
 
-    // Add new risks to existing ones
+    // Add new risks to existing ones (avoid duplicates)
     const existingTitles = identifiedRisks.map(r => r.title);
     const newRisks = risks.filter(r => !existingTitles.includes(r.title));
     
@@ -155,6 +233,8 @@ Let's begin by discussing any concerns or potential risks you're currently aware
     const exportData = {
       stakeholder: stakeholderInfo,
       consultation_type: 'risk_register',
+      agent: 'alex_risk_specialist',
+      session_id: sessionId,
       conversation: conversationHistory,
       identified_risks: identifiedRisks,
       export_date: new Date().toISOString()
@@ -195,7 +275,7 @@ Let's begin by discussing any concerns or potential risks you're currently aware
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="text-black grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Full Name *
@@ -282,7 +362,10 @@ Let's begin by discussing any concerns or potential risks you're currently aware
               </h2>
             </div>
             
-            <div className="h-96 overflow-y-auto p-4 space-y-4">
+            <div 
+              className="h-96 overflow-y-auto p-4 space-y-4"
+              ref={messagesContainerRef}
+            >
               {conversationHistory.map((msg, index) => (
                 <div key={index} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
@@ -303,14 +386,17 @@ Let's begin by discussing any concerns or potential risks you're currently aware
                   <div className="bg-gray-100 rounded-lg px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-600"></div>
-                      <span className="text-sm text-gray-600">Analyzing risks...</span>
+                      <span className="text-sm text-gray-600">Alex is thinking...</span>
                     </div>
                   </div>
                 </div>
               )}
+              
+              {/* Auto-scroll target */}
+              <div ref={messagesEndRef} />
             </div>
             
-            <div className="p-4 border-t border-gray-200">
+            <div className="text-black p-4 border-t border-gray-200">
               <div className="flex gap-2">
                 <input
                   type="text"

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // Import useRef and useEffect
 import { AIService } from '../services/aiService';
 import { DataService } from '../services/supabase';
 import { Send, Download, Save, MessageSquare, Users, Calendar, Target } from 'lucide-react';
@@ -20,9 +20,24 @@ const EngagementPlanner = ({ onBack }) => {
     communications: []
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId, setSessionId] = useState(null); // Add session tracking
+  
+  const messagesEndRef = useRef(null); // Create ref for auto-scroll
+  const messagesContainerRef = useRef(null);
 
   const aiService = new AIService();
   const dataService = new DataService();
+
+  // Auto-scroll to bottom when conversation updates
+  const scrollToBottom = () => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [conversationHistory]);
 
   const startConversation = async () => {
     if (!stakeholderInfo.name || !stakeholderInfo.role || !stakeholderInfo.department) {
@@ -33,7 +48,7 @@ const EngagementPlanner = ({ onBack }) => {
     setCurrentStep('conversation');
     const welcomeMessage = {
       sender: 'ai',
-      message: `G'day ${stakeholderInfo.name}! I'm Jordan, your stakeholder engagement specialist. I'll help you develop a comprehensive engagement strategy for ${stakeholderInfo.department}.
+      message: `G'day ${stakeholderInfo.name}! I'm Jordan, your stakeholder engagement specialist. I'm here to help you develop a comprehensive engagement strategy for ${stakeholderInfo.department}.
 
 Let's start by understanding what you're trying to achieve. Are you looking to engage stakeholders for a specific project, policy change, or ongoing relationship building?`,
       timestamp: new Date()
@@ -44,23 +59,47 @@ Let's start by understanding what you're trying to achieve. Are you looking to e
   const handleUserResponse = async () => {
     if (!userResponse.trim() || isLoading) return;
 
+    const userMessage = userResponse;
+    setUserResponse('');
     setIsLoading(true);
-    
-    const newConversation = [
-      ...conversationHistory,
-      { sender: 'user', message: userResponse, timestamp: new Date() }
-    ];
-    setConversationHistory(newConversation);
+
+    // Add user message to conversation
+    setConversationHistory(prev => [...prev, {
+      sender: 'user',
+      message: userMessage,
+      timestamp: new Date()
+    }]);
 
     try {
-      const aiResult = await aiService.generateResponse(
-        userResponse,
-        stakeholderInfo,
-        'jordan'
-      );
+      let aiResult;
+      if (sessionId) {
+        // Use Jordan engagement agent if session exists
+        const response = await aiService.sendEngagementPlanningMessage({
+          userMessage,
+          sessionId,
+          context: {
+            conversationHistory: conversationHistory,
+            engagementPlan: engagementPlan,
+            stakeholderInfo: stakeholderInfo
+          }
+        });
+        
+        aiResult = {
+          response: response.message,
+          insights: response.insights || []
+        };
+      } else {
+        // Fallback to original service
+        aiResult = await aiService.generateResponse(
+          userMessage,
+          stakeholderInfo,
+          'jordan'
+        );
+      }
 
       const updatedConversation = [
-        ...newConversation,
+        ...conversationHistory,
+        { sender: 'user', message: userMessage, timestamp: new Date() },
         {
           sender: 'ai',
           message: aiResult.response,
@@ -71,13 +110,17 @@ Let's start by understanding what you're trying to achieve. Are you looking to e
       setConversationHistory(updatedConversation);
 
       // Extract engagement plan elements
-      extractEngagementElements(userResponse, aiResult.response);
+      extractEngagementElements(userMessage, aiResult.response);
 
     } catch (error) {
       console.error('Error getting AI response:', error);
+      setConversationHistory(prev => [...prev, {
+        sender: 'ai',
+        message: 'I apologize, but I encountered an error. Please try again.',
+        timestamp: new Date()
+      }]);
     }
 
-    setUserResponse('');
     setIsLoading(false);
   };
 
@@ -192,6 +235,8 @@ Let's start by understanding what you're trying to achieve. Are you looking to e
       consultation_type: 'engagement_planning',
       conversation: conversationHistory,
       engagement_plan: engagementPlan,
+      session_id: sessionId, // Include session tracking
+      agent_type: 'jordan_engagement_planner',
       export_date: new Date().toISOString()
     };
 
@@ -230,7 +275,7 @@ Let's start by understanding what you're trying to achieve. Are you looking to e
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="text-black grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Full Name *
@@ -317,7 +362,7 @@ Let's start by understanding what you're trying to achieve. Are you looking to e
               </h2>
             </div>
             
-            <div className="h-96 overflow-y-auto p-4 space-y-4">
+            <div className="h-96 overflow-y-auto p-4 space-y-4" ref={messagesContainerRef}>
               {conversationHistory.map((msg, index) => (
                 <div key={index} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
@@ -338,14 +383,15 @@ Let's start by understanding what you're trying to achieve. Are you looking to e
                   <div className="bg-gray-100 rounded-lg px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
-                      <span className="text-sm text-gray-600">Developing strategy...</span>
+                      <span className="text-sm text-gray-600">Jordan is thinking...</span>
                     </div>
                   </div>
                 </div>
               )}
+              <div ref={messagesEndRef} />
             </div>
             
-            <div className="p-4 border-t border-gray-200">
+            <div className="text-black p-4 border-t border-gray-200">
               <div className="flex gap-2">
                 <input
                   type="text"

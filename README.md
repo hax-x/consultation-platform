@@ -1,2 +1,2 @@
 # Consultation-Platform
-AI 
+AI driven platform for HWHS project stakeholder consultation
