@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { LogOut, Users, Target, Shield, MessageSquare } from 'lucide-react';
+import { LogOut, Users, Target, Shield, MessageSquare, ClipboardList, Globe } from 'lucide-react';
 import PriorityMatrix from './PriorityMatrix';
 import CapacityAssessment from './CapacityAssessment';
 import RiskRegister from './RiskRegister';
 import EngagementPlanner from './EngagementPlanner';
+import DeliveryStaff from './DeliveryStaff';
+import ExternalStakeholders from './ExternalStakeholders';
 
 const ConsultationDashboard = ({ user, onLogout }) => {
   const [selectedTool, setSelectedTool] = useState(null);
@@ -40,6 +42,22 @@ const ConsultationDashboard = ({ user, onLogout }) => {
       icon: MessageSquare,
       color: 'bg-purple-500',
       component: EngagementPlanner
+    },
+    {
+      id: 'delivery',
+      title: 'Delivery Staff',
+      description: 'Deliver projects and initiatives effectively',
+      icon: ClipboardList,
+      color: 'bg-yellow-500',
+      component: DeliveryStaff
+    },
+    {
+      id: 'external-stakeholders',
+      title: 'External Stakeholder',
+      description: 'Engage with external stakeholders for feedback and collaboration',
+      icon: Globe,
+      color: 'bg-teal-500',
+      component: ExternalStakeholders
     }
   ];
 

@@ -1,8 +1,8 @@
 import OpenAI from 'openai';
 
 let openai; // Declare openai outside to be initialized conditionally
-// const BACKEND_URL = "http://127.0.0.1:8004";
-const BACKEND_URL = "https://tafe-nsw-consultation-backend.onrender.com";
+const BACKEND_URL = "http://127.0.0.1:8004";
+// const BACKEND_URL = "https://tafe-nsw-consultation-backend.onrender.com";
 
 export class AIService {
   async sendPriorityDiscoveryMessage(userMessage, context) { // Add context parameter
@@ -35,7 +35,8 @@ export class AIService {
         insights: [], // Backend agent doesn't provide insights in this format
         followUpQuestions: [], // Backend agent doesn't provide follow-up questions in this format
         data: data.data,
-        sessionId: data.session_id
+        sessionId: data.session_id,
+        interactive_question_data: data.interactive_question_data || null // Pass through interactive data
       };
     } catch (error) {
       console.error('Backend API Error:', error);
