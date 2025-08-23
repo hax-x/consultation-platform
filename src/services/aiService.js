@@ -1,8 +1,8 @@
 import OpenAI from 'openai';
 
 let openai; // Declare openai outside to be initialized conditionally
-const BACKEND_URL = "http://127.0.0.1:8004";
-// const BACKEND_URL = "https://tafe-nsw-consultation-backend.onrender.com";
+// const BACKEND_URL = "http://127.0.0.1:8004";
+const BACKEND_URL = "https://tafe-nsw-consultation-backend.onrender.com";
 
 export class AIService {
   async sendPriorityDiscoveryMessage(userMessage, context) { // Add context parameter
